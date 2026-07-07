@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Dot Matrix Clock</title>
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="apple-touch-icon" href="favicon.png">
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Doto:wght@400..900&display=swap');
 
@@ -825,18 +827,15 @@
     }
 
     function drawAccentDot(x, y, t, alphaMul = 1, hover = 0){
-      let boostedT = layout.narrow ? Math.min(1, t * layout.accentBoost + 0.06) : t;
-      if (hover > 0){
-        boostedT = Math.min(1, boostedT + hover * 0.38);
-        alphaMul = Math.min(1, alphaMul + hover * 0.22);
-      }
-      const radius = Math.max(offBase * 0.6, accentMax * boostedT * (1 + hover * 0.12));
+      const boostedT = layout.narrow ? Math.min(1, t * layout.accentBoost + 0.06) : t;
+      const baseRadius = Math.max(offBase * 0.6, accentMax * boostedT);
+      const radius = baseRadius * (1 + hover * 0.5);
       const opacity = (0.28 + 0.72 * boostedT) * alphaMul;
       ctx.beginPath();
       ctx.fillStyle = `rgba(${r},${g},${b},${opacity})`;
       if (boostedT > 0.45 && alphaMul > 0.35){
-        ctx.shadowColor = `rgba(${r},${g},${b},${(0.55 + hover * 0.25) * boostedT * alphaMul})`;
-        ctx.shadowBlur = radius * (layout.narrow ? 1.65 : 1.4) * (1 + hover * 0.35);
+        ctx.shadowColor = `rgba(${r},${g},${b},${0.55 * boostedT * alphaMul})`;
+        ctx.shadowBlur = baseRadius * (layout.narrow ? 1.65 : 1.4);
       } else {
         ctx.shadowBlur = 0;
       }
