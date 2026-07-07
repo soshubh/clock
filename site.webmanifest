@@ -1,7 +1,7 @@
 {
   "name": "Dot Clock",
   "short_name": "Dot Clock",
-  "description": "Free fullscreen dot-matrix LED clock with customizable pitch, glow, accent color, and 12H/24H format.",
+  "description": "Free online grid clock and dot matrix watch. See live time on a fullscreen LED dot grid with customizable glow, color, and format.",
   "start_url": "/",
   "scope": "/",
   "display": "fullscreen",
