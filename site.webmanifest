@@ -1,0 +1,19 @@
+{
+  "name": "Dot Clock",
+  "short_name": "Dot Clock",
+  "description": "Free fullscreen dot-matrix LED clock with customizable pitch, glow, accent color, and 12H/24H format.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "fullscreen",
+  "background_color": "#0f0e0b",
+  "theme_color": "#0f0e0b",
+  "lang": "en",
+  "icons": [
+    {
+      "src": "favicon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
