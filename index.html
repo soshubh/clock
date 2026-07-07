@@ -1,0 +1,1027 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Dot Matrix Clock</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Doto:wght@400..900&display=swap');
+
+  :root{
+    --bg: #0f0e0b;
+    --panel: rgba(22, 22, 20, 0.45);
+    --panel-line: rgba(160, 160, 150, 0.16);
+    --dot-off: #35331f;
+    --dot-off-strong: rgba(88, 92, 110, 0.9);
+    --label: #918c7d;
+    --label-dim: #5a564a;
+    --accent: #ff7a29;
+    --accent-soft: rgba(255, 122, 41, 0.35);
+    --ui-dot: 8px;
+    --range-step: 18px;
+  }
+
+  *{ box-sizing:border-box; }
+
+  html,body{
+    height:100%;
+    margin:0;
+    background:var(--bg);
+    font-family:'JetBrains Mono','SF Mono',ui-monospace,Menlo,Consolas,monospace;
+    color:var(--label);
+    overflow:hidden;
+  }
+
+  .stage{
+    position:fixed;
+    inset:0;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+  }
+
+  .settings-btn{
+    position:fixed;
+    border:none;
+    background:transparent;
+    padding:0;
+    cursor:pointer;
+    z-index:30;
+    -webkit-tap-highlight-color:transparent;
+  }
+
+  canvas#dotclock{
+    display:block;
+    width:100vw;
+    height:100vh;
+    touch-action:none;
+  }
+
+  .date-row{
+    position:fixed;
+    bottom:24px;
+    left:50%;
+    transform:translateX(-50%);
+    font-size:12px;
+    letter-spacing:.25em;
+    color:var(--label-dim);
+    text-transform:uppercase;
+    z-index:5;
+    pointer-events:none;
+  }
+  .dot-text{
+    font-family:'Doto','JetBrains Mono','SF Mono',ui-monospace,Menlo,Consolas,monospace;
+    color:var(--label);
+    font-variation-settings:"ROND" 100;
+  }
+  .dot-text.is-dim{
+    color:var(--label-dim);
+  }
+  .dot-text.is-accent{
+    color:var(--accent);
+  }
+
+  .settings-dismiss{
+    display:none;
+  }
+
+  .dock{
+    position:fixed;
+    top:72px;
+    right:24px;
+    width:min(340px, calc(100vw - 48px));
+    background:var(--bg);
+    border:1px solid rgba(145, 140, 125, 0.24);
+    border-radius:18px;
+    padding:20px 22px 24px;
+    display:flex;
+    flex-direction:column;
+    gap:20px;
+    box-shadow:
+      0 0 0 1px rgba(53, 51, 31, 0.28),
+      0 12px 40px rgba(0, 0, 0, 0.32);
+    opacity:0;
+    transform:translateY(-10px) scale(0.98);
+    pointer-events:none;
+    transition:opacity .22s ease, transform .22s ease, border-color .22s ease, box-shadow .22s ease;
+    z-index:25;
+    touch-action:manipulation;
+  }
+  .dock.open{
+    opacity:1;
+    transform:translateY(0) scale(1);
+    pointer-events:auto;
+    border-color:rgba(145, 140, 125, 0.34);
+    box-shadow:
+      0 0 0 1px rgba(53, 51, 31, 0.4),
+      0 12px 40px rgba(0, 0, 0, 0.38);
+  }
+
+  .dock-title{
+    font-size:10px;
+    letter-spacing:.3em;
+    text-transform:uppercase;
+    color:var(--label);
+    padding-bottom:12px;
+    border-bottom:1px solid var(--panel-line);
+    display:flex;
+    align-items:center;
+    gap:8px;
+  }
+  .field{
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+  }
+
+  .field-label{
+    font-family:'Doto','JetBrains Mono','SF Mono',ui-monospace,Menlo,Consolas,monospace;
+    font-size:10px;
+    letter-spacing:.18em;
+    text-transform:uppercase;
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+  }
+  .field-label span.val{
+  }
+
+  .range-wrap{
+    position:relative;
+    padding:8px 0 10px;
+    min-height:28px;
+  }
+  .range-dots{
+    position:absolute;
+    inset:50% 0 auto;
+    transform:translateY(-50%);
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    pointer-events:none;
+  }
+  .range-dot{
+    width:6px;
+    height:6px;
+    border-radius:50%;
+    background:rgba(84, 95, 122, 0.55);
+    transform:scale(var(--dot-scale, .72));
+    transform-origin:center;
+    opacity:var(--dot-opacity, .72);
+    transition:transform .12s linear, background-color .12s linear, box-shadow .12s linear, opacity .12s linear;
+  }
+  .range-dot.is-active{
+    background:var(--accent);
+    box-shadow:0 0 10px var(--accent-soft), 0 0 20px var(--accent-soft);
+    opacity:1;
+  }
+
+  input[type=range]{
+    -webkit-appearance:none;
+    appearance:none;
+    width:100%;
+    height:28px;
+    background:transparent;
+    outline:none;
+    position:relative;
+    z-index:2;
+    margin:0;
+    opacity:0.001;
+    cursor:pointer;
+    touch-action:manipulation;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;
+    width:28px;
+    height:28px;
+    border-radius:50%;
+    background:transparent;
+    cursor:pointer;
+    border:none;
+    transition:transform .15s;
+    margin-top:0;
+  }
+  input[type=range]::-webkit-slider-thumb:hover{
+    transform:scale(1.15);
+  }
+  input[type=range]::-webkit-slider-runnable-track{
+    height:28px;
+    background:transparent;
+  }
+  input[type=range]::-moz-range-thumb{
+    width:28px;
+    height:28px;
+    border:none;
+    border-radius:50%;
+    background:transparent;
+    cursor:pointer;
+  }
+  input[type=range]::-moz-range-track{
+    height:28px;
+    background:transparent;
+    border:none;
+  }
+
+  .swatch-row{
+    display:flex;
+    align-items:center;
+    gap:10px;
+  }
+  .wheel-wrap{
+    margin-left:auto;
+    width:28px;
+    height:28px;
+    border-radius:50%;
+    padding:2.5px;
+    background:conic-gradient(from 0deg,
+      #ff3b3b, #ff9a3b, #ffe83b, #8aff3b, #3bffb0,
+      #3bd0ff, #3b6bff, #9a3bff, #ff3bd0, #ff3b3b);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    cursor:pointer;
+    box-shadow:0 2px 10px rgba(0,0,0,0.45);
+    transition:transform .15s;
+    flex:none;
+  }
+  .wheel-wrap:hover{
+    transform:scale(1.1);
+  }
+  input[type=color]{
+    -webkit-appearance:none;
+    appearance:none;
+    width:100%;
+    height:100%;
+    border:2px solid rgba(10,14,22,0.9);
+    border-radius:50%;
+    padding:0;
+    background:none;
+    cursor:pointer;
+  }
+  input[type=color]::-webkit-color-swatch-wrapper{ padding:0; border-radius:50%; }
+  input[type=color]::-webkit-color-swatch{ border:none; border-radius:50%; }
+
+  .presets{
+    display:flex;
+    gap:8px;
+  }
+  .preset-dot{
+    width:22px;
+    height:22px;
+    border-radius:50%;
+    border:1px solid rgba(255,255,255,0.18);
+    cursor:pointer;
+    transition:transform .15s, box-shadow .15s;
+  }
+  .preset-dot:hover{
+    transform:scale(1.15);
+    box-shadow:0 0 10px rgba(255,255,255,0.25);
+  }
+
+  .toggle-group{
+    display:flex;
+    border:1px solid var(--panel-line);
+    border-radius:999px;
+    overflow:hidden;
+    width:fit-content;
+    padding:4px;
+    background:rgba(120,150,200,0.08);
+    gap:4px;
+  }
+  .toggle-group button{
+    background:none;
+    border:none;
+    color:var(--label-dim);
+    font-family:inherit;
+    font-size:11px;
+    letter-spacing:.1em;
+    text-transform:uppercase;
+    padding:8px 14px;
+    min-width:72px;
+    border-radius:999px;
+    cursor:pointer;
+    transition:background .18s, box-shadow .18s, transform .18s;
+  }
+  .toggle-group button.active{
+    background:var(--accent);
+    box-shadow:0 0 12px var(--accent-soft);
+    transform:translateY(-1px);
+  }
+  .toggle-group button.active .dot-label{
+    color:#0b1420;
+  }
+  .dot-label{
+    display:inline-block;
+    font-family:'Doto','JetBrains Mono','SF Mono',ui-monospace,Menlo,Consolas,monospace;
+    color:var(--label-dim);
+    font-variation-settings:"ROND" 100;
+  }
+
+  .reset-btn{
+    align-self:flex-start;
+    background:transparent;
+    border:1px solid rgba(145, 140, 125, 0.28);
+    color:var(--label-dim);
+    font-family:'Doto','JetBrains Mono','SF Mono',ui-monospace,Menlo,Consolas,monospace;
+    font-size:10px;
+    letter-spacing:.18em;
+    text-transform:uppercase;
+    padding:10px 14px;
+    border-radius:999px;
+    cursor:pointer;
+    transition:border-color .18s, color .18s, background .18s;
+  }
+  .reset-btn:hover{
+    color:var(--label);
+    border-color:rgba(145, 140, 125, 0.45);
+    background:rgba(145, 140, 125, 0.06);
+  }
+
+  @media (max-width: 768px){
+    .date-row{
+      bottom:max(20px, env(safe-area-inset-bottom, 20px));
+      width:calc(100vw - 32px);
+      text-align:center;
+      font-size:clamp(12px, 3.6vw, 14px);
+      letter-spacing:.12em;
+      color:#a8a294;
+    }
+    input[type=range]{
+      height:36px;
+    }
+    input[type=range]::-webkit-slider-thumb{
+      width:36px;
+      height:36px;
+    }
+    input[type=range]::-moz-range-thumb{
+      width:36px;
+      height:36px;
+    }
+  }
+
+  @media (max-width:480px){
+    .date-row{
+      bottom:max(18px, env(safe-area-inset-bottom, 18px));
+      font-size:clamp(11px, 3.4vw, 13px);
+      letter-spacing:.08em;
+      line-height:1.45;
+      color:#b5afa1;
+    }
+    .dock{ right:16px; left:16px; width:auto; }
+  }
+</style>
+</head>
+<body>
+
+<div class="stage">
+  <button class="settings-btn" id="settingsBtn" aria-label="Settings" aria-expanded="false"></button>
+
+  <canvas id="dotclock"></canvas>
+  <div class="date-row dot-text is-dim" id="dateRow">—</div>
+
+  <div class="dock" id="dock">
+    <div class="dock-title dot-text">Display Settings</div>
+    <div class="field">
+      <div class="field-label"><span class="dot-text is-dim">Dot pitch</span> <span class="val dot-text is-accent" id="pitchVal">14px</span></div>
+      <div class="range-wrap"><input type="range" id="pitch" min="8" max="26" step="1" value="14"></div>
+    </div>
+
+    <div class="field">
+      <div class="field-label"><span class="dot-text is-dim">Dot size</span> <span class="val dot-text is-accent" id="sizeVal">100%</span></div>
+      <div class="range-wrap"><input type="range" id="size" min="40" max="150" step="5" value="100"></div>
+    </div>
+
+    <div class="field">
+      <div class="field-label"><span class="dot-text is-dim">Glow spread</span> <span class="val dot-text is-accent" id="blurVal">18px</span></div>
+      <div class="range-wrap"><input type="range" id="blur" min="4" max="40" step="1" value="18"></div>
+    </div>
+
+    <div class="field">
+      <div class="field-label"><span class="dot-text is-dim">Accent color</span></div>
+      <div class="swatch-row">
+        <div class="presets">
+          <div class="preset-dot" style="background:#4f9dff" data-c="#4f9dff"></div>
+          <div class="preset-dot" style="background:#ff7a29" data-c="#ff7a29"></div>
+          <div class="preset-dot" style="background:#3fd1c8" data-c="#3fd1c8"></div>
+          <div class="preset-dot" style="background:#8b7bff" data-c="#8b7bff"></div>
+          <div class="preset-dot" style="background:#ff4d6d" data-c="#ff4d6d"></div>
+          <div class="preset-dot" style="background:#f2f2f2" data-c="#f2f2f2"></div>
+        </div>
+        <div class="wheel-wrap" id="wheelWrap" title="Custom color">
+          <input type="color" id="colorPicker" value="#ff7a29">
+        </div>
+      </div>
+    </div>
+
+    <div class="field">
+      <div class="field-label"><span class="dot-text is-dim">Format</span></div>
+      <div class="toggle-group" id="formatToggle">
+        <button data-f="24" class="active"><span class="dot-label">24H</span></button>
+        <button data-f="12"><span class="dot-label">12H</span></button>
+      </div>
+    </div>
+
+    <div class="field">
+      <div class="field-label"><span class="dot-text is-dim">Seconds</span></div>
+      <div class="toggle-group" id="secToggle">
+        <button data-s="off" class="active"><span class="dot-label">Off</span></button>
+        <button data-s="on"><span class="dot-label">On</span></button>
+      </div>
+    </div>
+
+    <button type="button" class="reset-btn dot-text" id="resetBtn">Reset defaults</button>
+  </div>
+</div>
+
+<script>
+(function(){
+  const canvas = document.getElementById('dotclock');
+  const ctx = canvas.getContext('2d');
+
+  let W, H, DPR;
+  let settingsGrid = { col: 0, row: 2 };
+
+  // offscreen canvas for blurred time text mask
+  const off = document.createElement('canvas');
+  const offCtx = off.getContext('2d');
+
+  const STORAGE_KEY = 'dotMatrixClock';
+  const DEFAULT_SETTINGS = {
+    pitch: 14,
+    sizeMul: 1.0,
+    blur: 18,
+    color: '#ff7a29',
+    format: 24,
+    seconds: false
+  };
+
+  const state = {
+    ...DEFAULT_SETTINGS,
+    settingsOpen: false
+  };
+
+  const GLYPH_T = { standard: 0.40, small: 0.52, large: 0.70 };
+
+  const PLUS_DOTS = [
+    [-1, 0, 'small'], [0, 0, 'large'], [1, 0, 'small'],
+    [0, -1, 'small'], [0, 1, 'small']
+  ];
+  const CROSS_DOTS = [
+    [0, 0, 'large'],
+    [-1, -1, 'small'], [1, -1, 'small'], [-1, 1, 'small'], [1, 1, 'small']
+  ];
+  const GLYPH_SEQUENCE = [
+    { phase: 'out', x: 0, y: -1 },
+    { phase: 'out', x: 0, y: 1 },
+    { phase: 'out', x: -1, y: 0 },
+    { phase: 'out', x: 1, y: 0 },
+    { phase: 'in', x: -1, y: -1 },
+    { phase: 'in', x: 1, y: -1 },
+    { phase: 'in', x: -1, y: 1 },
+    { phase: 'in', x: 1, y: 1 }
+  ];
+
+  let glyphAnim = { active: false, toCross: false, start: 0 };
+  let glyphRaf = null;
+  const GLYPH_STEP_MS = 75;
+
+  function saveSettings(){
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        pitch: state.pitch,
+        sizeMul: state.sizeMul,
+        blur: state.blur,
+        color: state.color,
+        format: state.format,
+        seconds: state.seconds
+      }));
+    } catch {}
+  }
+
+  function loadSettings(){
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return;
+      const saved = JSON.parse(raw);
+      if (Number.isFinite(saved.pitch)) state.pitch = Math.min(26, Math.max(8, saved.pitch));
+      if (Number.isFinite(saved.sizeMul)) state.sizeMul = Math.min(1.5, Math.max(0.4, saved.sizeMul));
+      if (Number.isFinite(saved.blur)) state.blur = Math.min(40, Math.max(4, saved.blur));
+      if (typeof saved.color === 'string' && /^#[0-9a-f]{6}$/i.test(saved.color)) state.color = saved.color;
+      if (saved.format === 12 || saved.format === 24) state.format = saved.format;
+      if (typeof saved.seconds === 'boolean') state.seconds = saved.seconds;
+    } catch {}
+  }
+
+  function resetSettings(){
+    Object.assign(state, DEFAULT_SETTINGS, { settingsOpen: state.settingsOpen });
+    applySettingsToUI();
+    updateSettingsBtnPosition();
+    saveSettings();
+    draw();
+  }
+
+  function applySettingsToUI(){
+    pitchInput.value = state.pitch;
+    sizeInput.value = Math.round(state.sizeMul * 100);
+    blurInput.value = state.blur;
+    colorPicker.value = state.color;
+    document.getElementById('pitchVal').textContent = state.pitch + 'px';
+    document.getElementById('sizeVal').textContent = Math.round(state.sizeMul * 100) + '%';
+    document.getElementById('blurVal').textContent = state.blur + 'px';
+    document.querySelectorAll('#formatToggle button').forEach(btn=>{
+      btn.classList.toggle('active', parseInt(btn.dataset.f, 10) === state.format);
+    });
+    document.querySelectorAll('#secToggle button').forEach(btn=>{
+      btn.classList.toggle('active', (btn.dataset.s === 'on') === state.seconds);
+    });
+    document.documentElement.style.setProperty('--accent', state.color);
+    document.documentElement.style.setProperty('--accent-soft', `${hexToRgbString(state.color, 0.34)}`);
+    updateRangeVisuals();
+  }
+
+  function glyphKey(x, y){ return `${x},${y}`; }
+
+  function glyphStepOpacity(stepIndex, stepFloat, phase){
+    const local = stepFloat - stepIndex;
+    if (phase === 'out') return Math.max(0, Math.min(1, 1 - local));
+    return Math.max(0, Math.min(1, local));
+  }
+
+  function getGlyphDotOpacity(dx, dy){
+    const isPlus = PLUS_DOTS.some(([x, y]) => x === dx && y === dy);
+    const isCross = CROSS_DOTS.some(([x, y]) => x === dx && y === dy);
+    if (dx === 0 && dy === 0) return 1;
+
+    if (!glyphAnim.active){
+      if (state.settingsOpen) return isCross ? 1 : 0;
+      return isPlus ? 1 : 0;
+    }
+
+    const total = GLYPH_SEQUENCE.length;
+    const stepFloat = (performance.now() - glyphAnim.start) / GLYPH_STEP_MS;
+    const outIdx = GLYPH_SEQUENCE.findIndex(s => s.phase === 'out' && s.x === dx && s.y === dy);
+    const inIdx = GLYPH_SEQUENCE.findIndex(s => s.phase === 'in' && s.x === dx && s.y === dy);
+
+    if (glyphAnim.toCross){
+      if (isPlus && outIdx >= 0) return glyphStepOpacity(outIdx, stepFloat, 'out');
+      if (isCross && inIdx >= 0) return glyphStepOpacity(inIdx, stepFloat, 'in');
+      return 0;
+    }
+
+    if (isCross && inIdx >= 0) return glyphStepOpacity(total - 1 - inIdx, stepFloat, 'out');
+    if (isPlus && outIdx >= 0) return glyphStepOpacity(total - 1 - outIdx, stepFloat, 'in');
+    return 0;
+  }
+
+  function getSettingsPoints(){
+    const dots = new Map();
+    [...PLUS_DOTS, ...CROSS_DOTS].forEach(([dx, dy, tier])=>{
+      const opacity = getGlyphDotOpacity(dx, dy);
+      if (opacity > 0.02) dots.set(glyphKey(dx, dy), [dx, dy, tier, opacity]);
+    });
+    return [...dots.values()];
+  }
+
+  function animateGlyph(toCross){
+    if (glyphRaf) cancelAnimationFrame(glyphRaf);
+    glyphAnim = { active: true, toCross, start: performance.now() };
+
+    function frame(){
+      draw();
+      const elapsed = performance.now() - glyphAnim.start;
+      if (elapsed < GLYPH_STEP_MS * GLYPH_SEQUENCE.length + 60){
+        glyphRaf = requestAnimationFrame(frame);
+      } else {
+        glyphAnim.active = false;
+        glyphRaf = null;
+        draw();
+      }
+    }
+    glyphRaf = requestAnimationFrame(frame);
+  }
+
+  function updateDockPosition(){
+    const btn = document.getElementById('settingsBtn');
+    const rect = btn.getBoundingClientRect();
+    const topInset = window.innerWidth < 768 ? 8 : 0;
+    dock.style.top = `${Math.max(rect.bottom + 12, topInset + 12)}px`;
+  }
+
+  function updateSettingsBtnPosition(){
+    const pitch = state.pitch;
+    const cols = Math.floor(window.innerWidth / pitch);
+    const rows = Math.floor(window.innerHeight / pitch);
+    const startX = (window.innerWidth - (cols - 1) * pitch) / 2;
+    const startY = (window.innerHeight - (rows - 1) * pitch) / 2;
+    const cx = startX + settingsGrid.col * pitch;
+    const cy = startY + settingsGrid.row * pitch;
+    const hit = pitch * 3.6;
+    const btn = document.getElementById('settingsBtn');
+    const topPad = window.innerWidth < 768 ? 10 : 0;
+    btn.style.top = `${Math.max(cy - hit / 2, topPad)}px`;
+    btn.style.left = `${cx - hit / 2}px`;
+    btn.style.width = `${hit}px`;
+    btn.style.height = `${hit}px`;
+    if (state.settingsOpen) updateDockPosition();
+  }
+
+  function resize(){
+    DPR = window.devicePixelRatio || 1;
+    W = Math.floor(window.innerWidth * DPR);
+    H = Math.floor(window.innerHeight * DPR);
+    canvas.width = W;
+    canvas.height = H;
+    off.width = W;
+    off.height = H;
+
+    const pitchCss = state.pitch;
+    const cols = Math.floor(window.innerWidth / pitchCss);
+    settingsGrid.col = Math.max(3, cols - 3);
+    settingsGrid.row = getLayout().narrow ? 3 : 2;
+    updateSettingsBtnPosition();
+
+    updateRangeVisuals();
+    draw();
+  }
+
+  function getLayout(){
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    const narrow = w < 768 || h > w * 1.05;
+    if (w < 480) {
+      return {
+        narrow: true,
+        timeScale: state.seconds ? 0.38 : 0.44,
+        timeY: 0.45,
+        maxWidth: 0.98,
+        blurMul: 0.82,
+        sizeMul: 1.3,
+        offBoost: 1.42,
+        accentBoost: 1.1,
+        offOpacityBase: 0.74,
+        alphaCutoff: 0.012
+      };
+    }
+    if (narrow) {
+      return {
+        narrow: true,
+        timeScale: state.seconds ? 0.35 : 0.4,
+        timeY: 0.46,
+        maxWidth: 0.96,
+        blurMul: 0.88,
+        sizeMul: 1.18,
+        offBoost: 1.28,
+        accentBoost: 1.06,
+        offOpacityBase: 0.68,
+        alphaCutoff: 0.015
+      };
+    }
+    return {
+      narrow: false,
+      timeScale: state.seconds ? 0.34 : 0.4,
+      timeY: 0.5,
+      maxWidth: 0.86,
+      blurMul: 1,
+      sizeMul: 1,
+      offBoost: 1,
+      accentBoost: 1,
+      offOpacityBase: 0.62,
+      alphaCutoff: 0.02
+    };
+  }
+
+  function hexToRgb(hex){
+    const v = hex.replace('#','');
+    const n = parseInt(v.length===3 ? v.split('').map(c=>c+c).join('') : v, 16);
+    return { r:(n>>16)&255, g:(n>>8)&255, b:n&255 };
+  }
+
+  function timeString(){
+    const now = new Date();
+    let h = now.getHours();
+    let suffix = '';
+    if (state.format === 12){
+      suffix = h >= 12 ? ' PM' : ' AM';
+      h = h % 12; if (h === 0) h = 12;
+    }
+    const hh = String(h).padStart(2,'0');
+    const mm = String(now.getMinutes()).padStart(2,'0');
+    const ss = String(now.getSeconds()).padStart(2,'0');
+    let str = hh + ':' + mm;
+    if (state.seconds) str += ':' + ss;
+    return str + suffix;
+  }
+
+  function dateString(){
+    const now = new Date();
+    if (window.innerWidth < 520){
+      return now.toLocaleDateString(undefined, {
+        weekday: 'short',
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric'
+      }).toUpperCase();
+    }
+    return now.toLocaleDateString(undefined, { weekday:'long', year:'numeric', month:'long', day:'numeric' })
+      .toUpperCase();
+  }
+
+  function renderTextMask(){
+    const layout = getLayout();
+    offCtx.clearRect(0,0,W,H);
+    offCtx.save();
+    offCtx.filter = `blur(${state.blur * DPR * layout.blurMul}px)`;
+    offCtx.fillStyle = '#fff';
+    offCtx.textAlign = 'center';
+    offCtx.textBaseline = 'middle';
+
+    const str = timeString();
+    let fontSize = H * layout.timeScale;
+    offCtx.font = `800 ${fontSize}px Arial, sans-serif`;
+    let w = offCtx.measureText(str).width;
+    const maxW = W * layout.maxWidth;
+    if (w > maxW){
+      fontSize *= maxW / w;
+      offCtx.font = `800 ${fontSize}px Arial, sans-serif`;
+    }
+    offCtx.fillText(str, W / 2, H * layout.timeY);
+    offCtx.restore();
+  }
+
+  function draw(){
+    if (!W || !H) return;
+    const layout = getLayout();
+    renderTextMask();
+    const mask = offCtx.getImageData(0, 0, W, H).data;
+    const {r,g,b} = hexToRgb(state.color);
+
+    ctx.clearRect(0,0,W,H);
+    ctx.fillStyle = '#0f0e0b';
+    ctx.fillRect(0,0,W,H);
+
+    const pitch = state.pitch * DPR;
+    const offBase = pitch * 0.11 * layout.offBoost;
+    const accentMax = pitch * 0.44 * state.sizeMul * layout.sizeMul;
+    const cols = Math.floor(W / pitch);
+    const rows = Math.floor(H / pitch);
+    const startX = (W - (cols-1)*pitch)/2;
+    const startY = (H - (rows-1)*pitch)/2;
+    settingsGrid.col = Math.max(3, cols - 3);
+    settingsGrid.row = layout.narrow ? 3 : 2;
+
+    function sampleMaskAlpha(data, x, y){
+      const sx = Math.min(W - 1, Math.max(0, Math.round(x)));
+      const sy = Math.min(H - 1, Math.max(0, Math.round(y)));
+      return data[(sy * W + sx) * 4 + 3] / 255;
+    }
+
+    function sampleAlpha(x, y){
+      return sampleMaskAlpha(mask, x, y);
+    }
+
+    function drawAccentDot(x, y, t, alphaMul = 1){
+      const boostedT = layout.narrow ? Math.min(1, t * layout.accentBoost + 0.06) : t;
+      const radius = Math.max(offBase * 0.6, accentMax * boostedT);
+      const opacity = (0.28 + 0.72 * boostedT) * alphaMul;
+      ctx.beginPath();
+      ctx.fillStyle = `rgba(${r},${g},${b},${opacity})`;
+      if (boostedT > 0.45 && alphaMul > 0.35){
+        ctx.shadowColor = `rgba(${r},${g},${b},${0.55 * boostedT * alphaMul})`;
+        ctx.shadowBlur = radius * (layout.narrow ? 1.65 : 1.4);
+      } else {
+        ctx.shadowBlur = 0;
+      }
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    function drawSettingsGlyph(){
+      const { col: centerCol, row: centerRow } = settingsGrid;
+
+      ctx.shadowBlur = 0;
+      getSettingsPoints().forEach(([dx, dy, tier, alphaMul])=>{
+        const x = startX + (centerCol + dx) * pitch;
+        const y = startY + (centerRow + dy) * pitch;
+        drawAccentDot(x, y, GLYPH_T[tier], alphaMul);
+      });
+    }
+
+    for (let j=0;j<rows;j++){
+      const y = startY + j*pitch;
+      const py = Math.min(H-1, Math.max(0, Math.round(y)));
+      for (let i=0;i<cols;i++){
+        const x = startX + i*pitch;
+        const px = Math.min(W-1, Math.max(0, Math.round(x)));
+        const idx = (py*W + px)*4;
+        const alpha = mask[idx + 3] / 255;
+
+        if (alpha > layout.alphaCutoff){
+          const t = Math.min(1, alpha);
+          drawAccentDot(x, y, t);
+        } else {
+          const halo = Math.max(
+            sampleAlpha(px + pitch * 0.9, py),
+            sampleAlpha(px - pitch * 0.9, py),
+            sampleAlpha(px, py + pitch * 0.9),
+            sampleAlpha(px, py - pitch * 0.9)
+          );
+          const depth = Math.max(0.52, 1 - halo * 1.8);
+          const offRadius = Math.max(pitch * 0.058 * layout.offBoost, offBase * depth);
+          const offOpacity = Math.min(0.96, (layout.offOpacityBase + halo * 0.2) * layout.offBoost);
+          ctx.beginPath();
+          ctx.fillStyle = `rgba(68, 64, 42, ${offOpacity})`;
+          ctx.shadowBlur = 0;
+          ctx.arc(x, y, offRadius, 0, Math.PI*2);
+          ctx.fill();
+        }
+      }
+    }
+
+    drawSettingsGlyph();
+  }
+
+  function tick(){
+    draw();
+    document.getElementById('dateRow').textContent = dateString();
+  }
+
+  // ---- controls wiring ----
+  const pitchInput = document.getElementById('pitch');
+  const sizeInput = document.getElementById('size');
+  const blurInput = document.getElementById('blur');
+  const colorPicker = document.getElementById('colorPicker');
+  const rangeInputs = [pitchInput, sizeInput, blurInput];
+
+  function ensureRangeDots(input){
+    const wrap = input.parentElement;
+    let dots = wrap.querySelector('.range-dots');
+    if (dots) return dots;
+
+    dots = document.createElement('div');
+    dots.className = 'range-dots';
+
+    for (let i = 0; i < 15; i++){
+      const dot = document.createElement('span');
+      dot.className = 'range-dot';
+      dots.appendChild(dot);
+    }
+
+    wrap.appendChild(dots);
+    return dots;
+  }
+
+  function updateRangeVisual(input){
+    const min = Number(input.min);
+    const max = Number(input.max);
+    const value = Number(input.value);
+    const percent = ((value - min) / (max - min)) * 100;
+    const dots = [...ensureRangeDots(input).children];
+    const activeIndex = (dots.length - 1) * (percent / 100);
+
+    dots.forEach((dot, index)=>{
+      const distance = Math.abs(index - activeIndex);
+      const influence = Math.max(0, 1 - distance / 4.2);
+      const scale = 0.62 + influence * 0.96;
+      const opacity = 0.45 + influence * 0.55;
+      const isActive = index <= Math.round(activeIndex);
+
+      dot.style.setProperty('--dot-scale', scale.toFixed(3));
+      dot.style.setProperty('--dot-opacity', opacity.toFixed(3));
+      dot.classList.toggle('is-active', isActive);
+    });
+  }
+
+  function updateRangeVisuals(){
+    rangeInputs.forEach(updateRangeVisual);
+  }
+
+  function setAccentColor(color){
+    state.color = color;
+    document.documentElement.style.setProperty('--accent', color);
+    document.documentElement.style.setProperty('--accent-soft', `${hexToRgbString(color, 0.34)}`);
+    saveSettings();
+    draw();
+  }
+
+  function hexToRgbString(hex, alpha){
+    const { r, g, b } = hexToRgb(hex);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+
+  pitchInput.addEventListener('input', e=>{
+    state.pitch = parseInt(e.target.value,10);
+    document.getElementById('pitchVal').textContent = state.pitch + 'px';
+    updateRangeVisual(e.target);
+    updateSettingsBtnPosition();
+    saveSettings();
+    draw();
+  });
+  sizeInput.addEventListener('input', e=>{
+    state.sizeMul = parseInt(e.target.value,10)/100;
+    document.getElementById('sizeVal').textContent = e.target.value + '%';
+    updateRangeVisual(e.target);
+    saveSettings();
+    draw();
+  });
+  blurInput.addEventListener('input', e=>{
+    state.blur = parseInt(e.target.value,10);
+    document.getElementById('blurVal').textContent = state.blur + 'px';
+    updateRangeVisual(e.target);
+    saveSettings();
+    draw();
+  });
+  colorPicker.addEventListener('input', e=>{
+    setAccentColor(e.target.value);
+  });
+  document.querySelectorAll('.preset-dot').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      colorPicker.value = el.dataset.c;
+      setAccentColor(el.dataset.c);
+    });
+  });
+
+  document.getElementById('formatToggle').addEventListener('click', e=>{
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    state.format = parseInt(btn.dataset.f,10);
+    document.querySelectorAll('#formatToggle button').forEach(b=>b.classList.toggle('active', b===btn));
+    saveSettings();
+    draw();
+  });
+  document.getElementById('secToggle').addEventListener('click', e=>{
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    state.seconds = btn.dataset.s === 'on';
+    document.querySelectorAll('#secToggle button').forEach(b=>b.classList.toggle('active', b===btn));
+    saveSettings();
+    draw();
+  });
+  document.getElementById('resetBtn').addEventListener('click', resetSettings);
+
+  // ---- settings panel open/close ----
+  const settingsBtn = document.getElementById('settingsBtn');
+  const dock = document.getElementById('dock');
+
+  function cancelGlyphAnim(){
+    if (glyphRaf){
+      cancelAnimationFrame(glyphRaf);
+      glyphRaf = null;
+    }
+    glyphAnim.active = false;
+  }
+
+  function openSettings(){
+    if (glyphAnim.active) return;
+    state.settingsOpen = true;
+    dock.classList.add('open');
+    updateDockPosition();
+    settingsBtn.setAttribute('aria-expanded','true');
+    settingsBtn.setAttribute('aria-label','Close settings');
+    animateGlyph(true);
+  }
+  function closeSettings(){
+    if (!state.settingsOpen && !glyphAnim.active) return;
+    cancelGlyphAnim();
+    state.settingsOpen = false;
+    dock.classList.remove('open');
+    settingsBtn.setAttribute('aria-expanded','false');
+    settingsBtn.setAttribute('aria-label','Settings');
+    animateGlyph(false);
+  }
+  settingsBtn.addEventListener('mousedown', e=> e.stopPropagation());
+  settingsBtn.addEventListener('touchstart', e=> e.stopPropagation(), { passive: true });
+  settingsBtn.addEventListener('click', e=>{
+    e.stopPropagation();
+    state.settingsOpen ? closeSettings() : openSettings();
+  });
+  dock.addEventListener('mousedown', e=> e.stopPropagation());
+  dock.addEventListener('touchstart', e=> e.stopPropagation(), { passive: true });
+  dock.addEventListener('click', e=> e.stopPropagation());
+
+  function handleOutsideSettings(e){
+    if (!state.settingsOpen) return;
+    const target = e.target;
+    if (dock.contains(target) || settingsBtn.contains(target)) return;
+    closeSettings();
+  }
+  document.addEventListener('mousedown', handleOutsideSettings);
+  document.addEventListener('touchstart', handleOutsideSettings, { passive: true });
+  document.addEventListener('keydown', e=>{
+    if (e.key === 'Escape') closeSettings();
+  });
+
+  loadSettings();
+  applySettingsToUI();
+
+  window.addEventListener('resize', resize);
+  if (window.visualViewport){
+    window.visualViewport.addEventListener('resize', resize);
+  }
+  window.addEventListener('orientationchange', ()=> setTimeout(resize, 120));
+  resize();
+  tick();
+  setInterval(tick, 1000);
+})();
+</script>
+</body>
+</html>
