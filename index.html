@@ -511,6 +511,105 @@
   const GLYPH_STEP_MS = 75;
   let pointer = { x: -9999, y: -9999, active: false };
   let hoverRaf = null;
+  let lastTimeStr = '';
+  let maskFrom = null;
+  let maskTo = null;
+  let maskMix = 1;
+  let maskMixStart = 0;
+  let maskDirty = true;
+  let clockRaf = null;
+  const MASK_BLEND_MS = 720;
+
+  function smoothstep(t){
+    return t * t * (3 - 2 * t);
+  }
+
+  function refreshStaticMask(){
+    if (!W || !H) return;
+    lastTimeStr = timeString();
+    renderTextMask();
+    maskTo = offCtx.getImageData(0, 0, W, H);
+    maskFrom = null;
+    maskMix = 1;
+    maskDirty = false;
+  }
+
+  function beginMaskBlend(){
+    const str = timeString();
+    if (!W || !H) return;
+    if (str === lastTimeStr) return;
+
+    if (lastTimeStr && maskTo){
+      maskFrom = maskTo;
+    }
+
+    lastTimeStr = str;
+    renderTextMask();
+    maskTo = offCtx.getImageData(0, 0, W, H);
+    maskDirty = false;
+
+    if (maskFrom){
+      maskMix = 0;
+      maskMixStart = performance.now();
+      startClockLoop();
+    } else {
+      maskMix = 1;
+      maskFrom = null;
+    }
+  }
+
+  function getMaskMix(){
+    if (!maskFrom || !maskTo || maskMix >= 1) return 1;
+    const t = Math.min(1, (performance.now() - maskMixStart) / MASK_BLEND_MS);
+    if (t >= 1){
+      maskMix = 1;
+      maskFrom = null;
+      return 1;
+    }
+    return smoothstep(t);
+  }
+
+  function sampleTimeAlpha(px, py){
+    if (!maskTo) return 0;
+    const next = sampleMaskAlpha(maskTo.data, px, py);
+    if (!maskFrom) return next;
+    const mix = getMaskMix();
+    if (mix >= 1) return next;
+    const prev = sampleMaskAlpha(maskFrom.data, px, py);
+    return prev * (1 - mix) + next * mix;
+  }
+
+  function startClockLoop(){
+    if (clockRaf) return;
+    function loop(){
+      draw();
+      document.getElementById('dateRow').textContent = dateString();
+      if (maskMix < 1 || glyphAnim.active){
+        clockRaf = requestAnimationFrame(loop);
+      } else {
+        clockRaf = null;
+      }
+    }
+    clockRaf = requestAnimationFrame(loop);
+  }
+
+  function markMaskDirty(){
+    maskDirty = true;
+  }
+
+  function scheduleTick(){
+    const delay = 1000 - (Date.now() % 1000);
+    setTimeout(()=>{
+      tick();
+      scheduleTick();
+    }, delay);
+  }
+
+  function sampleMaskAlpha(data, x, y){
+    const sx = Math.min(W - 1, Math.max(0, Math.round(x)));
+    const sy = Math.min(H - 1, Math.max(0, Math.round(y)));
+    return data[(sy * W + sx) * 4 + 3] / 255;
+  }
 
   function lineHoverBoost(px, py, pitch){
     if (!pointer.active) return 0;
@@ -584,6 +683,11 @@
 
   function resetSettings(){
     Object.assign(state, DEFAULT_SETTINGS, { settingsOpen: state.settingsOpen });
+    lastTimeStr = '';
+    maskFrom = null;
+    maskTo = null;
+    maskMix = 1;
+    markMaskDirty();
     applySettingsToUI();
     updateSettingsBtnPosition();
     saveSettings();
@@ -704,6 +808,12 @@
     off.width = W;
     off.height = H;
 
+    lastTimeStr = '';
+    maskFrom = null;
+    maskTo = null;
+    maskMix = 1;
+    maskDirty = true;
+
     const pitchCss = state.pitch;
     const cols = Math.floor(window.innerWidth / pitchCss);
     settingsGrid.col = Math.max(3, cols - 3);
@@ -821,8 +931,7 @@
   function draw(){
     if (!W || !H) return;
     const layout = getLayout();
-    renderTextMask();
-    const mask = offCtx.getImageData(0, 0, W, H).data;
+    if (maskDirty && maskMix >= 1) refreshStaticMask();
     const {r,g,b} = hexToRgb(state.color);
 
     ctx.clearRect(0,0,W,H);
@@ -839,14 +948,8 @@
     settingsGrid.col = Math.max(3, cols - 3);
     settingsGrid.row = layout.narrow ? 3 : 2;
 
-    function sampleMaskAlpha(data, x, y){
-      const sx = Math.min(W - 1, Math.max(0, Math.round(x)));
-      const sy = Math.min(H - 1, Math.max(0, Math.round(y)));
-      return data[(sy * W + sx) * 4 + 3] / 255;
-    }
-
     function sampleAlpha(x, y){
-      return sampleMaskAlpha(mask, x, y);
+      return sampleTimeAlpha(x, y);
     }
 
     function drawAccentDot(x, y, t, alphaMul = 1, hover = 0){
@@ -866,15 +969,36 @@
       ctx.fill();
     }
 
+    function greyDotRadius(){
+      return Math.max(pitch * 0.058 * layout.offBoost, offBase * 0.72);
+    }
+
     function drawSettingsGlyph(){
       const { col: centerCol, row: centerRow } = settingsGrid;
+      const greyR = greyDotRadius();
+      const armR = greyR + DPR;
+      const centerR = greyR + 2.5 * DPR;
 
       ctx.shadowBlur = 0;
       getSettingsPoints().forEach(([dx, dy, tier, alphaMul])=>{
         const x = startX + (centerCol + dx) * pitch;
         const y = startY + (centerRow + dy) * pitch;
-        drawAccentDot(x, y, GLYPH_T[tier], alphaMul);
+        const isCenter = tier === 'large';
+        const radius = isCenter ? centerR : armR;
+        const opacity = (isCenter ? 0.94 : 0.9) * alphaMul;
+
+        ctx.beginPath();
+        ctx.fillStyle = `rgba(${r},${g},${b},${opacity})`;
+        if (isCenter && alphaMul > 0.35){
+          ctx.shadowColor = `rgba(${r},${g},${b},${0.28 * alphaMul})`;
+          ctx.shadowBlur = radius * 0.9;
+        } else {
+          ctx.shadowBlur = 0;
+        }
+        ctx.arc(x, y, radius, 0, Math.PI * 2);
+        ctx.fill();
       });
+      ctx.shadowBlur = 0;
     }
 
     for (let j=0;j<rows;j++){
@@ -883,8 +1007,7 @@
       for (let i=0;i<cols;i++){
         const x = startX + i*pitch;
         const px = Math.min(W-1, Math.max(0, Math.round(x)));
-        const idx = (py*W + px)*4;
-        const alpha = mask[idx + 3] / 255;
+        const alpha = sampleTimeAlpha(px, py);
 
         if (alpha > layout.alphaCutoff){
           const t = Math.min(1, alpha);
@@ -913,8 +1036,10 @@
   }
 
   function tick(){
+    beginMaskBlend();
     draw();
     document.getElementById('dateRow').textContent = dateString();
+    if (maskMix < 1) startClockLoop();
   }
 
   // ---- controls wiring ----
@@ -985,6 +1110,7 @@
     document.getElementById('pitchVal').textContent = state.pitch + 'px';
     updateRangeVisual(e.target);
     updateSettingsBtnPosition();
+    markMaskDirty();
     saveSettings();
     draw();
   });
@@ -992,6 +1118,7 @@
     state.sizeMul = parseInt(e.target.value,10)/100;
     document.getElementById('sizeVal').textContent = e.target.value + '%';
     updateRangeVisual(e.target);
+    markMaskDirty();
     saveSettings();
     draw();
   });
@@ -999,6 +1126,7 @@
     state.blur = parseInt(e.target.value,10);
     document.getElementById('blurVal').textContent = state.blur + 'px';
     updateRangeVisual(e.target);
+    markMaskDirty();
     saveSettings();
     draw();
   });
@@ -1017,16 +1145,20 @@
     if (!btn) return;
     state.format = parseInt(btn.dataset.f,10);
     document.querySelectorAll('#formatToggle button').forEach(b=>b.classList.toggle('active', b===btn));
+    beginMaskBlend();
     saveSettings();
     draw();
+    if (maskMix < 1) startClockLoop();
   });
   document.getElementById('secToggle').addEventListener('click', e=>{
     const btn = e.target.closest('button');
     if (!btn) return;
     state.seconds = btn.dataset.s === 'on';
     document.querySelectorAll('#secToggle button').forEach(b=>b.classList.toggle('active', b===btn));
+    beginMaskBlend();
     saveSettings();
     draw();
+    if (maskMix < 1) startClockLoop();
   });
   document.getElementById('resetBtn').addEventListener('click', resetSettings);
 
@@ -1092,7 +1224,7 @@
   window.addEventListener('orientationchange', ()=> setTimeout(resize, 120));
   resize();
   tick();
-  setInterval(tick, 1000);
+  scheduleTick();
 })();
 </script>
 </body>
