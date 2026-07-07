@@ -103,15 +103,20 @@
       0 0 0 1px rgba(53, 51, 31, 0.28),
       0 12px 40px rgba(0, 0, 0, 0.32);
     opacity:0;
-    transform:translateY(-10px) scale(0.98);
+    transform:translateX(calc(100% + 28px));
     pointer-events:none;
-    transition:opacity .22s ease, transform .22s ease, border-color .22s ease, box-shadow .22s ease;
+    transition:
+      opacity .34s ease,
+      transform .42s cubic-bezier(0.22, 1, 0.36, 1),
+      border-color .22s ease,
+      box-shadow .22s ease;
     z-index:25;
     touch-action:manipulation;
+    will-change:transform, opacity;
   }
   .dock.open{
     opacity:1;
-    transform:translateY(0) scale(1);
+    transform:translateX(0);
     pointer-events:auto;
     border-color:rgba(145, 140, 125, 0.34);
     box-shadow:
